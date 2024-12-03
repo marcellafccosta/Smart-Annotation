@@ -1,4 +1,4 @@
-# 3D Image Partitioning App
+# Smart Annotation and Interactive Segmentation Systems for Medical Images
 
 Siga as instruções abaixo para configurar e executar a aplicação.
 
