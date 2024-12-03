@@ -4,13 +4,6 @@ Siga as instruções abaixo para configurar e executar a aplicação.
 
 ---
 
-## **Requisitos**
-- Python 3.7 ou superior
-- Ambiente virtual configurado
-- Dependências instaladas com `pip`
-
----
-
 ## **Passos para Executar**
 
 1. Clone o repositório ou navegue para a pasta correta.
