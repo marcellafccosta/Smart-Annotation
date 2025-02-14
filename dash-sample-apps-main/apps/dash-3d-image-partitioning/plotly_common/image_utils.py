@@ -1,3 +1,5 @@
+#plotly_common/image_utils.py
+
 import plotly.express as px
 import numpy as np
 import itertools

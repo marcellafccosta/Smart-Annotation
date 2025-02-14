@@ -1,3 +1,5 @@
+# app.py
+
 import dash
 import dash_html_components as html
 import dash_core_components as dcc
@@ -5,12 +7,17 @@ from dash.dependencies import Input, Output, State, ClientsideFunction
 import plotly.graph_objects as go
 from skimage import data, img_as_ubyte, segmentation, measure
 from dash_canvas.utils import array_to_data_url
+from dash import callback_context
 from plotly_common import plot_common
 from plotly_common import image_utils
 import numpy as np
 from nilearn import image
 import nibabel as nib
 import plotly.express as px
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from skimage import segmentation, color
+from skimage.future import graph
 from plotly_common import shape_utils
 from sys import exit
 import io
@@ -23,6 +30,16 @@ from database.config import get_db
 from database.user_crud import create_user, get_user_by_email
 from database.config import engine, Base
 from dash.exceptions import PreventUpdate
+from layout.login import login_layout
+from layout.modals import make_modal
+from layout.profile import profile_layout
+from layout.register import register_layout
+
+
+
+
+app = dash.Dash(__name__, suppress_callback_exceptions=True)
+server = app.server
 
 
 Base.metadata.create_all(bind=engine)
@@ -57,6 +74,10 @@ def PRINT(*vargs):
         print(*vargs)
 
 
+
+#segmenta a imagem fornecida usando SLIC, visualiza os superpixels e mantem
+#apenas aqueles com intensidade media acima de um certo limerar p remover o fundo
+#retorna uma imagem com as bordas dos segmentos e a matriz de rotulos de segumento
 def make_seg_image(img):
     """ Segment the image, then find the boundaries, then return an array that
     is clear (alpha=0) where there are no boundaries. """
@@ -64,8 +85,12 @@ def make_seg_image(img):
     seg = segmentation.slic(
         img, start_label=1, multichannel=False, compactness=0.1, n_segments=300
     )
-    # Only keep superpixels with an average intensity greater than threshold
-    # in order to remove superpixels of the background
+
+    # Visualizar superpixels para a visualização superior
+    # visualize_superpixels(img, seg, view_type="Side View")
+
+    # Somente mantenha superpixels com uma intensidade média maior que o limiar
+    # para remover superpixels do fundo
     superpx_avg = (
         np.histogram(
             seg.astype(np.float), bins=np.arange(0, 310), weights=img.astype(np.float)
@@ -79,10 +104,34 @@ def make_seg_image(img):
     segb = segmentation.find_boundaries(seg).astype("uint8")
     segl = image_utils.label_to_colors(
         segb, colormap=["#000000", "#E48F72"], alpha=[0, 128], color_class_offset=0
-    )
+    ) 
     return (segl, seg)
 
 
+# def visualize_superpixels(img, segments_slic, view_type="Side View"):
+#     """
+#     Visualiza os superpixels de uma imagem segmentada com animação.
+
+#     Parâmetros:
+#     - img: array numpy contendo as imagens.
+#     - segments_slic: array numpy contendo os segmentos (superpixels).
+#     - view_type: string indicando o tipo de visualização ("Top View" ou "Side View").
+#     """
+#     fig, ax = plt.subplots(figsize=(10, 10))
+
+#     def update(i):
+#         ax.clear()
+#         img_rgb = color.label2rgb(segments_slic[:, i, :], image=img[:, i, :], bg_label=0, kind='avg')
+#         ax.imshow(img_rgb)
+#         ax.set_title(f'Segmentação com Superpixels - Fatia {i} ({view_type})')
+
+#     anim = FuncAnimation(fig, update, frames=range(img.shape[1]), repeat=True)
+
+#     plt.show()
+
+
+
+#cria uma figura padrao do ploty, usada p configurar a interface grafica onde as imagens serao exibidas
 def make_default_figure(
     images=[],
     stroke_color=DEFAULT_STROKE_COLOR,
@@ -130,12 +179,13 @@ def make_default_figure(
     return fig
 
 
-img = image.load_img("assets/BraTS19_2013_10_1_flair.nii")
+img = image.load_img("assets//BraTS19_2013_10_1_flair.nii")
 img = img.get_fdata().transpose(2, 0, 1)[::-1].astype("float")
 
 img = img_as_ubyte((img - img.min()) / (img.max() - img.min()))
 
 
+#inicializa um tensor de segmentos encontrados como zero (sem pixels coloridos) e converte em uma imagem colorida clara
 def make_empty_found_segments():
     """ fstc_slices is initialized to a bunch of images containing nothing (clear pixels) """
     found_segs_tensor = np.zeros_like(img)
@@ -193,8 +243,6 @@ found_seg_slices = make_empty_found_segments()
 # containing no colored pixels
 blank_seg_slices = [found_seg_slices[0][0], found_seg_slices[1][0]]
 
-app = dash.Dash(__name__, suppress_callback_exceptions=True)
-server = app.server
 
 top_fig, side_fig = [
     make_default_figure(
@@ -261,272 +309,6 @@ def make_modal():
         ],
     )
 
-
-def header_layout():
-    return html.Div(
-        style={
-            "display": "flex",
-            "justify-content": "space-between",
-            "align-items": "center",
-            "background-color": "#086D87",
-            "padding": "10px",
-        },
-        children=[
-            html.Div(
-                children=[
-                    html.A(
-                        html.Img(
-                            src="/assets/imlogo.jpeg",
-                            style={
-                                "height": "50px",
-                                "margin-right": "15px"
-                            },
-                        ),
-                        href="/main",
-                    ),
-                ],
-                style={"display": "flex", "align-items": "center"}
-            ),
-            html.Div(
-                children=[
-                    html.A(
-                        html.Img(
-                            src="/assets/custom-icon.svg", 
-                            style={
-                                "height": "30px",  
-                                "cursor": "pointer",
-                                "padding": "10px",
-                            },
-                        ),
-                        href="/profile",
-                        style={
-                            "text-decoration": "none",
-                            "display": "flex",
-                            "align-items": "center",
-                            "justify-content": "center",
-                            "background-color": "#086D87",
-                            "border-radius": "50%",
-                            "width": "24px",
-                            "height": "24px",
-                            "box-shadow": "0px 4px 6px rgba(0, 0, 0, 0.1)",
-                            "margin-right": "10px"
-                        }
-                    ),
-                    dcc.Link(
-                        html.Img(
-                            src="/assets/logout-icon.svg",  
-                            style={
-                               "height": "30px",  
-                                "cursor": "pointer",
-                                "color": "red",
-                            }
-                        ),
-                        href="/logout",
-                        style={
-                            "text-decoration": "none",
-                            "display": "flex",
-                            "align-items": "center",
-                            "justify-content": "center",
-                            "cursor": "pointer",
-                            "transition": "0.3s ease",
-                        }
-                    ),
-                ],
-                style={"display": "flex", "align-items": "center"}
-            )
-
-        ]
-    )
-
-
-
-
-def register_layout():
-    return html.Div(
-        style={
-            "display": "flex",
-            "justify-content": "center",
-            "align-items": "center",
-            "height": "100vh",
-            "background-color": "#f3f3f3",
-        },
-        children=[
-            html.Div(
-                style={
-                    "width": "350px",
-                    "padding": "30px",
-                    "border-radius": "10px",
-                    "box-shadow": "0px 4px 8px rgba(0, 0, 0, 0.1)",
-                    "background-color": "white",
-                    "text-align": "center",
-                },
-                children=[
-                    html.H2(
-                        "Cadastro",
-                        style={"color": "#333", "margin-bottom": "20px"}
-                    ),
-                    dcc.Input(
-                        id="register-name",
-                        type="text",
-                        placeholder="Nome de usuário",
-                        style={
-                            "width": "100%",
-                            "padding": "10px",
-                            "margin-bottom": "10px",
-                            "border-radius": "5px",
-                            "border": "1px solid #ccc",
-                        }
-                    ),
-                    dcc.Input(
-                        id="register-email",
-                        type="email",
-                        placeholder="E-mail",
-                        style={
-                            "width": "100%",
-                            "padding": "10px",
-                            "margin-bottom": "10px",
-                            "border-radius": "5px",
-                            "border": "1px solid #ccc",
-                        }
-                    ),
-                    dcc.Input(
-                        id="register-password",
-                        type="password",
-                        placeholder="Senha",
-                        style={
-                            "width": "100%",
-                            "padding": "10px",
-                            "margin-bottom": "10px",
-                            "border-radius": "5px",
-                            "border": "1px solid #ccc",
-                        }
-                    ),
-                    dcc.Input(
-                        id="confirm-password",
-                        type="password",
-                        placeholder="Confirme a senha",
-                        style={
-                            "width": "100%",
-                            "padding": "10px",
-                            "margin-bottom": "20px",
-                            "border-radius": "5px",
-                            "border": "1px solid #ccc",
-                        }
-                    ),
-                    html.Button(
-                        "Registrar",
-                        id="register-button",
-                        style={
-                            "width": "100%",
-                            "border-radius": "5px",
-                            "border": "none",
-                            "background-color": "#086D87",
-                            "color": "white",
-                            "font-size": "16px",
-                            "cursor": "pointer",
-                            "box-shadow": "0px 4px 6px rgba(0, 0, 0, 0.1)",
-                        }
-                    ),
-                    html.Div(id="register-message", style={"margin-top": "20px"}),
-                    html.Br(),
-                    html.A(
-                        "Já tem uma conta? Faça login",
-                        href="/login",
-                        style={
-                            "color": "#086D87",
-                            "text-decoration": "none",
-                            "font-size": "14px",
-                        },
-                        id="link-login",
-                    )
-                ]
-            )
-        ]
-    )
-    
-    
-    
-
-
-
-def login_layout():
-    return html.Div(
-        style={
-            "display": "flex",
-            "justify-content": "center",
-            "align-items": "center",
-            "height": "100vh",
-            "background-color": "#f3f3f3",
-        },
-        children=[
-            html.Div(
-                style={
-                    "width": "350px",
-                    "padding": "30px",
-                    "border-radius": "10px",
-                    "box-shadow": "0px 4px 8px rgba(0, 0, 0, 0.1)",
-                    "background-color": "white",
-                    "text-align": "center",
-                },
-                children=[
-                    html.H2(
-                        "Login",
-                        style={"color": "#333", "margin-bottom": "20px"}
-                    ),
-                    dcc.Input(
-                        id="login-email",
-                        type="email",
-                        placeholder="E-mail",
-                        style={
-                            "width": "100%",
-                            "padding": "10px",
-                            "margin-bottom": "10px",
-                            "border-radius": "5px",
-                            "border": "1px solid #ccc",
-                        }
-                    ),
-                    dcc.Input(
-                        id="login-password",
-                        type="password",
-                        placeholder="Senha",
-                        style={
-                            "width": "100%",
-                            "padding": "10px",
-                            "margin-bottom": "20px",
-                            "border-radius": "5px",
-                            "border": "1px solid #ccc",
-                        }
-                    ),
-                    html.Button(
-                        "Entrar",
-                        id="login-button",
-                        style={
-                            "width": "100%",
-                            "border-radius": "5px",
-                            "border": "none",
-                            "background-color": "#086D87",
-                            "color": "white",
-                            "font-size": "16px",
-                            "cursor": "pointer",
-                            "box-shadow": "0px 4px 6px rgba(0, 0, 0, 0.1)",
-                        }
-                    ),
-                    html.Div(id="login-message", style={"margin-top": "20px"}),
-                    html.Br(),
-                    html.A(
-                        "Não tem uma conta? Cadastre-se",
-                        href="/register",
-                        style={
-                            "color": "#086D87",
-                            "text-decoration": "none",
-                            "font-size": "14px",
-                        },
-                        id="link-register",
-                    )
-                ]
-            )
-        ]
-    )
 @app.callback(
     Output("register-message", "children"),
     [Input("register-button", "n_clicks")],
@@ -537,91 +319,18 @@ def login_layout():
 def register_user(n_clicks, name, email, password):
     if n_clicks:
         if not name or not email or not password:
-            return "Todos os campos são obrigatórios."
+            return "All fields are required."
 
         db = next(get_db())
-        # Verifica se o email já está registrado
         if get_user_by_email(db, email):
-            return "E-mail já cadastrado. Tente outro."
+            return "Email already registered. Try another."
 
-        # Cria um novo usuário
         user = create_user(db, name=name, email=email, password=password)
         if user:
-            return "Usuário registrado com sucesso!"
+            return "User successfully registered!"
         else:
-            return "Erro ao registrar o usuário. Tente novamente."
+            return "Error registering the user. Please try again."
     return ""
-
-
-
-def profile_layout():
-    return html.Div(
-        style={
-            "background-color": "#f3f3f3",
-            "min-height": "100vh",
-        },
-        children=[
-            header_layout(),
-            html.Div(
-                style={
-                    "display": "flex",
-                    "justify-content": "center",
-                    "align-items": "center",
-                    "padding": "30px",
-                },
-                children=[
-                    html.Div(
-                        style={
-                            "width": "500px",
-                            "padding": "30px",
-                            "border-radius": "10px",
-                            "box-shadow": "0px 4px 8px rgba(0, 0, 0, 0.1)",
-                            "background-color": "white",
-                            "text-align": "center",
-                        },
-                        children=[
-                            html.H2("Profile", style={  
-                                    "color": "#086D87",
-                                    "fontSize": "28px",
-                                    "fontWeight": "bold",
-                                    "textAlign": "center",
-                                    "width": "fit-content",
-                                    "margin": "20px auto", }),
-                            html.Table(
-                                style={
-                                    "width": "100%",
-                                    "margin-top": "20px",
-                                    "border-collapse": "collapse",
-                                },
-                                children=[
-                                    
-                                    html.Tr(
-                                        children=[
-                                            html.Td("Name", style={"padding": "10px", "color": "#333"}),
-                                            html.Td(id="user-name", style={"padding": "10px", "color": "#555"}),
-                                        ]
-                                    ),
-                                    html.Tr(
-                                        children=[
-                                            html.Td("Email", style={"padding": "10px", "color": "#333"}),
-                                            html.Td(id="user-email", style={"padding": "10px", "color": "#555"}),
-                                        ]
-                                    ),
-                                    html.Tr(
-                                        children=[
-                                            html.Td("Password", style={"padding": "10px", "color": "#333"}),
-                                            html.Td(id="user-password", style={"padding": "10px", "color": "#555"}),
-                                        ]
-                                    )
-                                ]
-                            ),
-                        ]
-                    )
-                ]
-            )
-        ]
-    )
-
 
 
 
@@ -654,8 +363,16 @@ app.layout = html.Div([
     html.Div(id='page-content'),
 ])
 
+@app.callback(
+    Output("markdown", "style"),
+    [Input("learn-more-button", "n_clicks"), Input("markdown_close", "n_clicks")]
+)
 
-
+def update_click_output(button_click, close_click):
+    if button_click > close_click:
+        return {"display": "block"}
+    else:
+        return {"display": "none"}
 
 
 def authenticate_user(db: Session, email: str, password: str):
@@ -666,60 +383,63 @@ def authenticate_user(db: Session, email: str, password: str):
 
 
 @app.callback(
-    [Output("login-message", "children"), 
-     Output("url", "pathname"), 
-     Output("user-email-store", "data")],
-    [Input("login-button", "n_clicks")], 
-    [State("login-email", "value"), 
-     State("login-password", "value")]  
-)
-def login_user(n_clicks, email, password):
-    if n_clicks:
-        # Verifica se os campos estão preenchidos
-        if not email or not password:
-            return "Todos os campos são obrigatórios.", dash.no_update, dash.no_update
+        [
+            Output("login-message", "children"),
+            Output("url", "pathname"),
+            Output("user-email-store", "data")
+        ],
+        [Input("login-button", "n_clicks")],
+        [State("login-email", "value"), State("login-password", "value"), State("user-email-store", "data")]
+    )
 
-        db = next(get_db())
+def login_logout_user(login_n_clicks, email, password, stored_email):
+        ctx = callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+
+        button_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+        # Login 
+        if button_id == "login-button":
+            if not email or not password:
+                return "All fields are required.", dash.no_update, dash.no_update
+
+            db = next(get_db())
+            user_db = get_user_by_email(db, email)
+            
+            if user_db and user_db.password == password:
+                return "Login successful!", "/profile", email
+            else:
+                return "Incorrect email or password.", dash.no_update, dash.no_update
+
+        # Logout 
+        elif button_id == "logout-button" and "logout-button" in [c['prop_id'].split('.')[0] for c in ctx.triggered]:
+            return "", "/", None
         
-        # Verifica as credenciais do usuário
-        user = authenticate_user(db, email, password)
-        if user:
-            # Caso de sucesso: redireciona para o perfil do usuário
-            return "Login bem-sucedido!", "/profile", email
-        else:
-            # Caso de falha: mensagem de erro
-            return "E-mail ou senha incorretos.", dash.no_update, dash.no_update
-
-    # Não há ação do botão, então não atualiza nada
-    raise PreventUpdate
+        #getitemsession limpar
 
 
+        raise PreventUpdate
 
 
-
-# Callback para alternar entre layouts com base na URL
 @app.callback(
     Output('page-content', 'children'),
     [Input('url', 'pathname')],
     [State('user-email-store', 'data')]
 )
 def display_page(pathname, user_email):
-    # Verifica se o usuário está autenticado
-    if pathname in ['/profile', '/main']:
-        if not user_email:
-            # Redireciona para a página de login se o usuário não estiver autenticado
-            return login_layout()
-    
+    print(f"Pathname recebido: {pathname}") 
     if pathname == '/login' or pathname == '/':
         return login_layout()
     elif pathname == '/register':
         return register_layout()
-    elif pathname == '/profile':
-        return profile_layout()
-    elif pathname == '/main':
+    elif pathname == '/profile' and user_email: 
+        return profile_layout() 
+    elif pathname == '/main' and user_email: 
         return app_layout()
     else:
-        return html.H1("404 - Página não encontrada")
+        return login_layout()
+
 
 
 def app_layout():
@@ -1085,8 +805,6 @@ def app_layout():
         dcc.Store(id="last-render-id", data=0),
     ])
 
-
-
 app.clientside_callback(
     """
 function (show_seg_n_clicks) {
@@ -1250,6 +968,8 @@ undo_data)
 )
 
 
+#converte formas desenhadas pelo usuario em segmentos na imagem, usa essas formas 
+#para determinar quais partes da imagem devem ser considerados como encontradas ou selecionadas
 def shapes_to_segs(
     drawn_shapes_data, image_display_top_figure, image_display_side_figure,
 ):
@@ -1296,6 +1016,9 @@ def shapes_to_segs(
         State("current-render-id", "data"),
     ],
 )
+
+#callback q reage ao desenho de formas pelo usuario, atualiza os segmentos
+#encontrados com base nas formas desenahdas
 def draw_shapes_react(
     drawn_shapes_data,
     image_display_top_figure,
@@ -1349,6 +1072,8 @@ def _decode_b64_slice(s):
     return base64.b64decode(s.encode())
 
 
+#converte uma lista de imagens codificadas em base64 de volta p um array numpy
+#permite manipulacao e analise posterior das imagens
 def slice_image_list_to_ndarray(fstc_slices):
     # convert encoded slices to array
     # TODO eventually make it format agnostic, right now we just assume png and
@@ -1377,6 +1102,8 @@ def slice_image_list_to_ndarray(fstc_slices):
     return fstc_ndarray.transpose((1, 2, 0, 3))
 
 
+
+#converte fatias encontradas em um arquivo nii e condifica em base64 p download
 # Converts found slices to nii file and encodes in b64 so it can be downloaded
 def save_found_slices(fstc_slices):
     # we just save the first view (it makes no difference in the end)
@@ -1500,6 +1227,8 @@ function (view_select_button_nclicks,current_render_id) {
     [Input("image-display-graph-3d", "relayoutData")],
     [State("fig-3d-scene", "data")],
 )
+
+#armazena dados de cena 3d p preservar o estado da camera e outras configuracoes entre atualizacoes
 def store_scene_data(graph_3d_relayoutData, last_3d_scene):
     PRINT("graph_3d_relayoutData", graph_3d_relayoutData)
     if graph_3d_relayoutData is not None:
@@ -1520,6 +1249,9 @@ def store_scene_data(graph_3d_relayoutData, last_3d_scene):
         State("image-display-graph-side", "figure"),
     ],
 )
+
+#gera visualização 3d das imagens e segmentos encontrados
+#usa marching_cubes p criar uma malha 3d a partir dos dados volumetricos
 def populate_3d_graph(
     dummy2_children,
     show_hide_seg_3d,

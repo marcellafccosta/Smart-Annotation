@@ -1,3 +1,5 @@
+#plotly_common/shape_utils.py
+
 from cairosvg import svg2png
 import skimage
 import PIL.Image

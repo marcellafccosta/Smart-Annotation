@@ -1,3 +1,5 @@
+#plotly_common/plot_common.py
+
 import base64
 import PIL.Image
 import io
